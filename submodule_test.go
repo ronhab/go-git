@@ -5,6 +5,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/go-git/go-git/v5/plumbing"
@@ -197,6 +198,9 @@ func (s *SubmoduleSuite) TestSubmodulesInit(c *C) {
 }
 
 func (s *SubmoduleSuite) TestGitSubmodulesSymlink(c *C) {
+	if runtime.GOOS == "windows" {
+		c.Skip("git doesn't support symlinks by default in windows")
+	}
 	f, err := s.Worktree.Filesystem.Create("badfile")
 	c.Assert(err, IsNil)
 	defer f.Close()

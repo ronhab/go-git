@@ -230,6 +230,11 @@ func (s *WorktreeSuite) TestPullProgressWithRecursion(c *C) {
 }
 
 func (s *RepositorySuite) TestPullAdd(c *C) {
+	touch := "touch foo"
+	if runtime.GOOS == "windows" {
+		touch = "cmd /c type nul > foo"
+	}
+
 	path := fixtures.Basic().ByTag("worktree").One().Worktree().Root()
 
 	r, err := Clone(memory.NewStorage(), memfs.New(), &CloneOptions{
@@ -246,7 +251,7 @@ func (s *RepositorySuite) TestPullAdd(c *C) {
 	c.Assert(branch.Hash().String(), Equals, "6ecf0ef2c2dffb796033e5a02219af86ec6584e5")
 
 	ExecuteOnPath(c, path,
-		"touch foo",
+		touch,
 		"git add foo",
 		"git commit -m foo foo",
 	)
@@ -1306,6 +1311,9 @@ func (s *WorktreeSuite) TestAddRemoved(c *C) {
 }
 
 func (s *WorktreeSuite) TestAddSymlink(c *C) {
+	if runtime.GOOS == "windows" {
+		c.Skip("git doesn't support symlinks by default in windows")
+	}
 	dir, err := ioutil.TempDir("", "checkout")
 	c.Assert(err, IsNil)
 	defer os.RemoveAll(dir)
