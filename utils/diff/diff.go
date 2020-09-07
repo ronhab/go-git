@@ -32,10 +32,7 @@ func Do(src, dst string) (diffs []diffmatchpatch.Diff) {
 func DoWithTimeout(src, dst string, timeout time.Duration) (diffs []diffmatchpatch.Diff) {
 	dmp := diffmatchpatch.New()
 	dmp.DiffTimeout = timeout
-	wSrc, wDst, warray := dmp.DiffLinesToRunes(src, dst)
-	diffs = dmp.DiffMainRunes(wSrc, wDst, false)
-	diffs = dmp.DiffCharsToLines(diffs, warray)
-	return diffs
+	return dmp.DiffLineMode(src, dst)
 }
 
 // Dst computes and returns the destination text.

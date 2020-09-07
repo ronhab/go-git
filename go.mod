@@ -26,3 +26,5 @@ require (
 )
 
 go 1.13
+
+replace github.com/sergi/go-diff => github.com/ronhab/go-diff v1.1.1
