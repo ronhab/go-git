@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"time"
 	"unicode/utf8"
 
 	"github.com/go-git/go-git/v5/plumbing"
@@ -103,22 +102,22 @@ func Blame(c *object.Commit, path string) (*BlameResult, error) {
 
 // Line values represent the contents and author of a line in BlamedResult values.
 type Line struct {
-	// Author is the email address of the last author that modified the line.
-	Author string
 	// Text is the original text of the line.
 	Text string
-	// Date is when the original text of the line was introduced
-	Date time.Time
 	// Hash is the commit hash that introduced the original line
 	Hash plumbing.Hash
+	// Author is the last author that modified the line.
+	Author object.Signature
+	// Message is the commit message that introduced the original line
+	Message string
 }
 
-func newLine(author, text string, date time.Time, hash plumbing.Hash) *Line {
+func newLine(author object.Signature, text string, hash plumbing.Hash, message string) *Line {
 	return &Line{
 		Author: author,
 		Text:   text,
 		Hash:   hash,
-		Date:   date,
+		Message: message,
 	}
 }
 
@@ -137,8 +136,7 @@ func newLines(contents []string, commits []*object.Commit) ([]*Line, error) {
 	result := make([]*Line, 0, lcontents)
 	for i := range contents {
 		result = append(result, newLine(
-			commits[i].Author.Email, contents[i],
-			commits[i].Author.When, commits[i].Hash,
+			commits[i].Author, contents[i], commits[i].Hash, commits[i].Message,
 		))
 	}
 

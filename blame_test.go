@@ -1,6 +1,8 @@
 package git
 
 import (
+	"time"
+
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
 
@@ -46,6 +48,13 @@ type blameTest struct {
 	blames []string // the commits blamed for each line
 }
 
+type extBlameTest struct {
+	base blameTest
+	names []string
+	emails []string
+	times []time.Time
+	messages []string
+}
 // run a blame on all the suite's tests
 func (s *BlameSuite) TestBlame(c *C) {
 	for _, t := range blameTests {
@@ -61,6 +70,26 @@ func (s *BlameSuite) TestBlame(c *C) {
 
 		for i, l := range obt.Lines {
 			c.Assert(l.Hash.String(), Equals, t.blames[i])
+		}
+	}
+
+	for _, t := range extBlameTests {
+		r := s.NewRepositoryFromPackfile(fixtures.ByURL(t.base.repo).One())
+
+		exp := s.mockBlame(c, t.base, r)
+		commit, err := r.CommitObject(plumbing.NewHash(t.base.rev))
+		c.Assert(err, IsNil)
+
+		obt, err := Blame(commit, t.base.path)
+		c.Assert(err, IsNil)
+		c.Assert(obt, DeepEquals, exp)
+
+		for i, l := range obt.Lines {
+			c.Assert(l.Hash.String(), Equals, t.base.blames[i])
+			c.Assert(l.Author.Name, Equals, t.names[i])
+			c.Assert(l.Author.Email, Equals, t.emails[i])
+			c.Assert(l.Author.When.String(), Equals, t.times[i].String())
+			c.Assert(l.Message, Equals, t.messages[i])
 		}
 	}
 }
@@ -81,10 +110,10 @@ func (s *BlameSuite) mockBlame(c *C, t blameTest, r *Repository) (blame *BlameRe
 		commit, err := r.CommitObject(plumbing.NewHash(t.blames[i]))
 		c.Assert(err, IsNil)
 		l := &Line{
-			Author: commit.Author.Email,
+			Author: commit.Author,
 			Text:   lines[i],
-			Date:   commit.Author.When,
 			Hash:   commit.Hash,
+			Message: commit.Message,
 		}
 		blamedLines = append(blamedLines, l)
 	}
@@ -114,6 +143,29 @@ func concat(vargs ...[]string) []string {
 	var r []string
 	for _, ss := range vargs {
 		r = append(r, ss...)
+	}
+
+	return r
+}
+
+// utility function to avoid writing so many repeated commit dates
+func repeatTime(t time.Time, n int) []time.Time {
+	if n < 0 {
+		panic("repeat: n < 0")
+	}
+	r := make([]time.Time, 0, n)
+	for i := 0; i < n; i++ {
+		r = append(r, t)
+	}
+
+	return r
+}
+
+// utility function to concat Time slices
+func concatTime(vargs ...[]time.Time) []time.Time {
+	var r []time.Time
+	for _, t := range vargs {
+		r = append(r, t...)
 	}
 
 	return r
@@ -548,4 +600,132 @@ var blameTests = [...]blameTest{
 			repeat("a24001f6938d425d0e7504bdf5d27fc866a85c3d", 20),
 		)},
 	*/
+}
+
+func swallowErr(t time.Time, err error) time.Time {
+	return t
+}
+
+var messages = []string {
+`Standard configuration files for a Spinnaker deployment.
+
+These files are intended to be installed at the base of a spring config path.
+The default-spinnaker-local.yml is intended to be copied into a
+spinnaker-local.yml and modified for a custom deployment. The other files can
+be modified as <subsystem>-local.yml as well if needed.
+
+This PR is more about the structure and policy than the details though I
+would like to get the basic namespace right. I'm primarily using "services"
+but maybe this should be "spinnaker".
+
+The spinnaker.yml file contains the system wide policy and values shared among
+multiple systems. The individual system files contain the particular
+configuration for a given subsystem. The namespace in the spinnaker.yml is
+intentionally disjoint from those in the individual system files requiring
+the systems to explicitly document their configuration -- both how it is
+standard (by referencing spinnaker.yml values) and how it is non-standard
+(by not referencing spinnaker.yml values).
+
+There are future CLs that add more scripting and support of this but
+fundamentally using this assumes setting the spring.config.location system
+property to something like
+
+$INSTALL/config/spinnaker.yml,\
+$INSTALL/config/,\
+$HOME/.spinnaker/spinnaker-local.yml,\
+$HOME/.spinnaker/
+
+Recently the module spring loader was changed to look for 'spinnaker.yml'
+so the config location would be $INSTALL/config,$HOME/.spinnaker/
+If the subsystems config yaml files in this PR were moved into the subsystems
+themselves, then the spring location could remain the default $HOME/.spinnaker/
+
+With this approach, users typically ovewrite a single spinnaker-local.yml file
+for most needs. The spring expression language cannot handle "subtrees", only
+values. Therefore configuration of repeated nodes requires overriding the
+<subsystem>-local.yml in order to add the lists in. Otherwise, the
+spinnaker.yml defines "primary" values and the <subsystem_local.yml provide
+a list containing the "primary" value so that the spinnaker-local.yml can
+still serve as a central configuration.
+
+Deck is a different story.
+
+I'm including a "settings.js" here as a placeholder. This is what I actively
+use, but it is out of date from chris' current work. The only "interesting"
+thing here is the use of variable declarations that reference the
+spinnaker.yml namespace. There is a script (in a future CL) that can
+substitute that block with current config values. For purposes of this CL,
+the details of settings.js can be changed later without worry. It's the
+policy of calling out key configuration variables that may be needed and
+resolving them with a script (I'll provide later) that is of interest for
+this PR.
+
+CAVEAT:
+
+I've been having trouble getting AWS to work.
+
+I can get it to work using root credentials when I run out of debian packages
+(on GCE) and use environment variables (with a launch script that sets them
+based on the YAML file) but the same strategy does not work for gradlew runs.
+The gradle runs complain that it does not know about the "default profile".
+I can run out of gradle if I have an .aws/config [sic] file (e.g. from an
+awscli). I can run the debian packages with an .aws/credentials file.
+It seems user credentials need more attributes in clouddriver. For example a
+role. However roles are not valid with root credentials and a null role is
+not valid either, so it seems clouddriver-local.yml may have to exist for
+maintaining aws credentials.
+`,
+`minor config tweaks to get things running. Adds a README.md for the local developer getting started experience
+`,
+`Add rebakeControlEnabled=true flag to deck settings.
+`,
+`Sync feature block in settings.js.
+`,
+}
+
+var extBlameTests = [...]extBlameTest{
+	{
+		base: blameTest{
+			repo: "https://github.com/spinnaker/spinnaker.git", rev: "f39d86f59a0781f130e8de6b2115329c1fbe9545", path: "config/settings.js", blames: concat(
+				repeat("ae904e8d60228c21c47368f6a10f1cc9ca3aeebf", 17),
+				repeat("99534ecc895fe17a1d562bb3049d4168a04d0865", 1),
+				repeat("ae904e8d60228c21c47368f6a10f1cc9ca3aeebf", 43),
+				repeat("d2838db9f6ef9628645e7d04cd9658a83e8708ea", 1),
+				repeat("637ba49300f701cfbd859c1ccf13c4f39a9ba1c8", 1),
+				repeat("ae904e8d60228c21c47368f6a10f1cc9ca3aeebf", 13),
+			),
+		},
+		names: concat(
+			repeat("Eric Wiseblatt", 17),
+			repeat("Cameron Fieber", 1),
+			repeat("Eric Wiseblatt", 43),
+			repeat("duftler", 1),
+			repeat("duftler", 1),
+			repeat("Eric Wiseblatt", 13),
+		),
+		emails: concat(
+			repeat("ewiseblatt@google.com", 17),
+			repeat("cfieber@netflix.com", 1),
+			repeat("ewiseblatt@google.com", 43),
+			repeat("duftler@google.com", 1),
+			repeat("duftler@google.com", 1),
+			repeat("ewiseblatt@google.com", 13),
+		),
+		times: concatTime(
+			repeatTime(swallowErr(time.Parse("2006-01-02 15:04:05 -0700", "2015-10-27 13:31:49 +0000")), 17),
+			repeatTime(swallowErr(time.Parse("2006-01-02 15:04:05 -0700", "2015-10-29 15:28:08 -0700")), 1),
+			repeatTime(swallowErr(time.Parse("2006-01-02 15:04:05 -0700", "2015-10-27 13:31:49 +0000")), 43),
+			repeatTime(swallowErr(time.Parse("2006-01-02 15:04:05 -0700", "2015-11-14 22:51:32 -0500")), 1),
+			repeatTime(swallowErr(time.Parse("2006-01-02 15:04:05 -0700", "2015-11-19 08:04:05 -0500")), 1),
+			repeatTime(swallowErr(time.Parse("2006-01-02 15:04:05 -0700", "2015-10-27 13:31:49 +0000")), 13),
+		),
+		messages: concat(
+			repeat(messages[0], 17),
+			repeat(messages[1], 1),
+			repeat(messages[0], 43),
+			repeat(messages[2], 1),
+			repeat(messages[3], 1),
+			repeat(messages[0], 13),
+		),
+	},
 }
